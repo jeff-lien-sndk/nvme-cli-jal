@@ -1180,12 +1180,19 @@ int parse_event_fifos(struct json_object *root, struct nvme_ocp_telemetry_offset
 				return -1;
 			}
 
-			int status = parse_event_fifo(fifo_no, pfifo_start, pevent_fifos_object,
+			if (pfifo_start != NULL) {
+				int status = parse_event_fifo(fifo_no, pfifo_start, pevent_fifos_object,
 						      pstring_buffer, poffsets, fifo_size, fp);
 
-			if (status != 0) {
-				nvme_show_error("Failed to parse Event FIFO. status:%d\n", status);
-				return -1;
+				if (status != 0) {
+					nvme_show_error("Failed to parse Event FIFO. status:%d\n", status);
+					return -1;
+				}
+			} else {
+				printf("%s: NULL Event FIFO buffer ptr, skip parsing.\n", __func__);
+				printf("%s: FIFO #: %d, pda1_header: %p, pda2_offset: %p, fifo_offset: 0x%llx\n",
+						__func__, fifo_no, pda1_header_offset, pda2_offset, fifo_offset);
+
 			}
 		}
 	}
