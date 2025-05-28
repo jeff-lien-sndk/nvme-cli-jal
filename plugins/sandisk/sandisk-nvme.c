@@ -62,6 +62,132 @@ static int sndk_drive_status(int argc, char **argv,
 		struct plugin *plugin)
 {
 	return run_wdc_drive_status(argc, argv, command, plugin);
+
+#if 0  // jal
+	char *desc = "Get Drive Status.";
+	struct nvme_dev *dev;
+	int ret = 0;
+	nvme_root_t r;
+	void *dev_mng_log = NULL;
+	__u32 system_eol_state;
+	__u32 user_eol_state;
+	__u32 format_corrupt_reason = 0xFFFFFFFF;
+	__u32 eol_status;
+	__u32 assert_status = 0xFFFFFFFF;
+	__u32 thermal_status = 0xFFFFFFFF;
+	__u64 capabilities = 0;
+
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
+
+	ret = parse_and_open(&dev, argc, argv, desc, opts);
+	if (ret)
+		return ret;
+
+	r = nvme_scan(NULL);
+	capabilities = sndk_get_drive_capabilities(r, dev);
+	if ((capabilities & SNDK_DRIVE_CAP_DRIVE_STATUS) != SNDK_DRIVE_CAP_DRIVE_STATUS) {
+		fprintf(stderr, "ERROR: SNDK: unsupported device for this command\n");
+		ret = -1;
+		goto out;
+	}
+
+	/* verify the 0xC2 Device Manageability log page is supported */
+	if (sndk_nvme_check_supported_log_page(r, dev,
+					      SNDK_NVME_GET_DEV_MGMNT_LOG_PAGE_ID) == false) {
+		fprintf(stderr, "ERROR: SNDK: 0xC2 Log Page not supported\n");
+		ret = -1;
+		goto out;
+	} */
+
+	if (!sndk_get_dev_mgment_data(r, dev, &dev_mng_log)) {
+		fprintf(stderr, "ERROR: SNDK: 0xC2 Log Page not found\n");
+		ret = -1;
+		goto out;
+	}
+
+	/* Get the assert dump present status */
+	if (!wdc_nvme_parse_dev_status_log_entry(dev_mng_log, &assert_status,
+			WDC_C2_ASSERT_DUMP_PRESENT_ID))
+		fprintf(stderr, "ERROR: SNDK: Get Assert Status Failed\n");
+
+	/* Get the thermal throttling status */
+	if (!wdc_nvme_parse_dev_status_log_entry(dev_mng_log, &thermal_status,
+			WDC_C2_THERMAL_THROTTLE_STATUS_ID))
+		fprintf(stderr, "ERROR: SNDK: Get Thermal Throttling Status Failed\n");
+
+	/* Get EOL status */
+	if (!wdc_nvme_parse_dev_status_log_entry(dev_mng_log, &eol_status,
+			WDC_C2_USER_EOL_STATUS_ID)) {
+		fprintf(stderr, "ERROR: SNDK: Get User EOL Status Failed\n");
+		eol_status = cpu_to_le32(-1);
+	}
+
+	/* Get Customer EOL state */
+	if (!wdc_nvme_parse_dev_status_log_entry(dev_mng_log, &user_eol_state,
+			WDC_C2_USER_EOL_STATE_ID))
+		fprintf(stderr, "ERROR: SNDK: Get User EOL State Failed\n");
+
+	/* Get System EOL state*/
+	if (!wdc_nvme_parse_dev_status_log_entry(dev_mng_log, &system_eol_state,
+			WDC_C2_SYSTEM_EOL_STATE_ID))
+		fprintf(stderr, "ERROR: SNDK: Get System EOL State Failed\n");
+
+	/* Get format corrupt reason*/
+	if (!wdc_nvme_parse_dev_status_log_entry(dev_mng_log, &format_corrupt_reason,
+			WDC_C2_FORMAT_CORRUPT_REASON_ID))
+		fprintf(stderr, "ERROR: SNDK: Get Format Corrupt Reason Failed\n");
+
+	printf("  Drive Status :-\n");
+	if ((int)le32_to_cpu(eol_status) >= 0)
+		printf("  Percent Used:				%"PRIu32"%%\n",
+		       le32_to_cpu(eol_status));
+	else
+		printf("  Percent Used:				Unknown\n");
+	if (system_eol_state == WDC_EOL_STATUS_NORMAL && user_eol_state == WDC_EOL_STATUS_NORMAL)
+		printf("  Drive Life Status:			Normal\n");
+	else if (system_eol_state == WDC_EOL_STATUS_END_OF_LIFE ||
+		 user_eol_state == WDC_EOL_STATUS_END_OF_LIFE)
+		printf("  Drive Life Status:			End Of Life\n");
+	else if (system_eol_state == WDC_EOL_STATUS_READ_ONLY ||
+		 user_eol_state == WDC_EOL_STATUS_READ_ONLY)
+		printf("  Drive Life Status:			Read Only\n");
+	else
+		printf("  Drive Life Status:			Unknown : 0x%08x/0x%08x\n",
+		       le32_to_cpu(user_eol_state), le32_to_cpu(system_eol_state));
+
+	if (assert_status == WDC_ASSERT_DUMP_PRESENT)
+		printf("  Assert Dump Status:			Present\n");
+	else if (assert_status == WDC_ASSERT_DUMP_NOT_PRESENT)
+		printf("  Assert Dump Status:			Not Present\n");
+	else
+		printf("  Assert Dump Status:			Unknown : 0x%08x\n", le32_to_cpu(assert_status));
+
+	if (thermal_status == WDC_THERMAL_THROTTLING_OFF)
+		printf("  Thermal Throttling Status:		Off\n");
+	else if (thermal_status == WDC_THERMAL_THROTTLING_ON)
+		printf("  Thermal Throttling Status:		On\n");
+	else if (thermal_status == WDC_THERMAL_THROTTLING_UNAVAILABLE)
+		printf("  Thermal Throttling Status:		Unavailable\n");
+	else
+		printf("  Thermal Throttling Status:		Unknown : 0x%08x\n", le32_to_cpu(thermal_status));
+
+	if (format_corrupt_reason == WDC_FORMAT_NOT_CORRUPT)
+		printf("  Format Corrupt Reason:		Format Not Corrupted\n");
+	else if (format_corrupt_reason == WDC_FORMAT_CORRUPT_FW_ASSERT)
+		printf("  Format Corrupt Reason:	        Format Corrupt due to FW Assert\n");
+	else if (format_corrupt_reason == WDC_FORMAT_CORRUPT_UNKNOWN)
+		printf("  Format Corrupt Reason:	        Format Corrupt for Unknown Reason\n");
+	else
+		printf("  Format Corrupt Reason:	        Unknown : 0x%08x\n", le32_to_cpu(format_corrupt_reason));
+
+	free(dev_mng_log);
+out:
+	nvme_free_tree(r);
+	dev_close(dev);
+	return ret;
+#endif
 }
 
 static int sndk_clear_assert_dump(int argc, char **argv,

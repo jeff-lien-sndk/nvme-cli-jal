@@ -154,6 +154,7 @@
 #define SNDK_NVME_GET_EOL_STATUS_LOG_ID             0xC0
 #define SNDK_ERROR_REC_LOG_ID                       0xC1
 #define SNDK_NVME_GET_FW_ACT_HISTORY_C2_LOG_ID      0xC2
+#define SNDK_NVME_GET_DEV_MGMNT_LOG_PAGE_ID         0xC2
 #define SNDK_LATENCY_MON_LOG_ID                     0xC3
 #define SNDK_DEV_CAP_LOG_ID                         0xC4
 #define SNDK_UNSUPPORTED_REQS_LOG_ID                0xC5
@@ -173,6 +174,18 @@
 #define SNDK_CUSTOMER_ID_0x1304         0x1304
 #define SNDK_INVALID_CUSTOMER_ID            -1
 
+/* Additional C2 Log Page data structs needed for parsing */
+struct sndk_c2_log_page_header {
+	__le32	length;
+	__le32	version;
+};
+
+struct sndk_c2_log_subpage_header {
+	__le32	length;
+	__le32	entry_id;
+	__le32	data;
+};
+
 int sndk_get_pci_ids(nvme_root_t r,
 		struct nvme_dev *dev,
 		uint32_t *device_id,
@@ -190,3 +203,8 @@ __u64 sndk_get_drive_capabilities(nvme_root_t r,
 __u64 sndk_get_enc_drive_capabilities(nvme_root_t r,
 	    struct nvme_dev *dev);
 
+#if 0  //jal
+static bool sndk_nvme_parse_dev_status_log_entry(void *log_data,
+		__u32 *ret_data,
+		__u32 entry_id);
+#endif

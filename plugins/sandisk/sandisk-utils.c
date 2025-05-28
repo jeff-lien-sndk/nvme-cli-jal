@@ -17,6 +17,19 @@
 #include "sandisk-utils.h"
 #include "plugins/wdc/wdc-nvme-cmds.h"
 
+/*  SNDK UUID value */
+const uint8_t SNDK_UUID[] = {
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x2d, 0xb9, 0x8c, 0x52, 0x0c, 0x4c,
+	0x5a, 0x15, 0xab, 0xe6, 0x33, 0x29, 0x9a, 0x70, 0xdf, 0xd0
+};
+
+/* UUID field with value of 0 indicates end of UUID List*/
+const uint8_t SNDK_UUID_END[] = {
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+};
 
 int sndk_get_pci_ids(nvme_root_t r, struct nvme_dev *dev,
 			   uint32_t *device_id, uint32_t *vendor_id)
@@ -130,6 +143,37 @@ bool sndk_check_device(nvme_root_t r, struct nvme_dev *dev)
 
 	return supported;
 }
+
+bool sndk_CheckUuidListSupport(struct nvme_dev *dev, struct nvme_id_uuid_list *uuid_list)
+{
+	int err;
+	struct nvme_id_ctrl ctrl;
+
+	memset(&ctrl, 0, sizeof(struct nvme_id_ctrl));
+	err = nvme_identify_ctrl(dev_fd(dev), &ctrl);
+	if (err) {
+		fprintf(stderr, "ERROR: SNDK: nvme_identify_ctrl() failed 0x%x\n", err);
+		return false;
+	}
+
+	if ((ctrl.ctratt & NVME_CTRL_CTRATT_UUID_LIST) == NVME_CTRL_CTRATT_UUID_LIST) {
+		err = nvme_identify_uuid(dev_fd(dev), uuid_list);
+		if (!err)
+			return true;
+		else if (err > 0)
+			nvme_show_status(err);
+		else
+			nvme_show_error("identify UUID list: %s", nvme_strerror(errno));
+	}
+
+	return false;
+}
+
+bool sndk_UuidEqual(struct nvme_id_uuid_list_entry *entry1, struct nvme_id_uuid_list_entry *entry2)
+{
+	return !memcmp(entry1->uuid, entry2->uuid, NVME_UUID_LEN);
+}
+
 
 __u64 sndk_get_drive_capabilities(nvme_root_t r, struct nvme_dev *dev)
 {
@@ -531,4 +575,175 @@ __u64 sndk_get_enc_drive_capabilities(nvme_root_t r,
 	return capabilities;
 }
 
+#if 0 // jal
+bool sndk_parse_dev_mng_log_entry(void *data,
+		__u32 entry_id,
+		struct sndk_c2_log_subpage_header **log_entry)
+{
+	__u32 remaining_len = 0;
+	__u32 log_length = 0;
+	__u32 log_entry_size = 0;
+	__u32 log_entry_id = 0;
+	__u32 offset = 0;
+	bool found = false;
+	struct sndk_c2_log_subpage_header *p_next_log_entry = NULL;
+	struct sndk_c2_log_page_header *hdr_ptr = (struct sndk_c2_log_page_header *)data;
+
+	log_length = le32_to_cpu(hdr_ptr->length);
+	/* Ensure log data is large enough for common header */
+	if (log_length < sizeof(struct sndk_c2_log_page_header)) {
+		fprintf(stderr,
+		    "ERROR: SNDK: %s: log smaller than header. log_len: 0x%x  HdrSize: %"PRIxPTR"\n",
+		    __func__, log_length, sizeof(struct sndk_c2_log_page_header));
+		return found;
+	}
+
+	/* Get pointer to first log Entry */
+	offset = sizeof(struct sndk_c2_log_page_header);
+	p_next_log_entry = (struct sndk_c2_log_subpage_header *)(((__u8 *)data) + offset);
+	remaining_len = log_length - offset;
+
+	if (!log_entry) {
+		fprintf(stderr, "ERROR: SNDK: - %s: No log entry pointer.\n", __func__);
+		return found;
+	}
+	*log_entry = NULL;
+
+	/* Proceed only if there is at least enough data to read an entry header */
+	while (remaining_len >= sizeof(struct sndk_c2_log_subpage_header)) {
+		/* Get size of the next entry */
+		log_entry_size = le32_to_cpu(p_next_log_entry->length);
+		log_entry_id = le32_to_cpu(p_next_log_entry->entry_id);
+
+		/*
+		 * If log entry size is 0 or the log entry goes past the end
+		 * of the data, we must be at the end of the data
+		 */
+		if (!log_entry_size || log_entry_size > remaining_len) {
+			fprintf(stderr, "ERROR: SNDK: %s: Detected unaligned end of the data. ",
+				__func__);
+			fprintf(stderr, "Data Offset: 0x%x Entry Size: 0x%x, ",
+				offset, log_entry_size);
+			fprintf(stderr, "Remaining Log Length: 0x%x Entry Id: 0x%x\n",
+				remaining_len, log_entry_id);
+
+			/* Force the loop to end */
+			remaining_len = 0;
+		} else if (!log_entry_id || log_entry_id > 200) {
+			/* Invalid entry - fail the search */
+			fprintf(stderr, "ERROR: SNDK: %s: Invalid entry found at offset: 0x%x ",
+				__func__, offset);
+			fprintf(stderr, "Entry Size: 0x%x, Remaining Log Length: 0x%x ",
+				log_entry_size, remaining_len);
+			fprintf(stderr, "Entry Id: 0x%x\n", log_entry_id);
+
+			/* Force the loop to end */
+			remaining_len = 0;
+		} else {
+			if (log_entry_id == entry_id) {
+				found = true;
+				*log_entry = p_next_log_entry;
+				remaining_len = 0;
+			} else {
+				remaining_len -= log_entry_size;
+			}
+
+			if (remaining_len > 0) {
+				/* Increment the offset counter */
+				offset += log_entry_size;
+
+				/* Get the next entry */
+				p_next_log_entry =
+				(struct sndk_c2_log_subpage_header *)(((__u8 *)data) + offset);
+			}
+		}
+	}
+
+	return found;
+}
+
+static bool sndk_nvme_parse_dev_status_log_entry(void *log_data,
+		__u32 *ret_data,
+		__u32 entry_id)
+{
+	struct sndk_c2_log_subpage_header *entry_data = NULL;
+
+	if (sndk_parse_dev_mng_log_entry(log_data, entry_id, &entry_data)) {
+		if (entry_data) {
+			*ret_data = le32_to_cpu(entry_data->data);
+			return true;
+		}
+	}
+
+	*ret_data = 0;
+	return false;
+}
+
+static bool sndk_get_dev_mgment_data(nvme_root_t r, struct nvme_dev *dev,
+				void **data)
+{
+	bool found = false;
+	*data = NULL;
+	__u32 device_id = 0, vendor_id = 0;
+	bool uuid_present = false;
+	int index = 0, uuid_index = 0;
+	struct nvme_id_uuid_list uuid_list;
+
+	/* The sndk_get_pci_ids function could fail when drives are connected
+	 * via a PCIe switch.  Therefore, the return code is intentionally
+	 * being ignored.  The device_id and vendor_id variables have been
+	 * initialized to 0 so the code can continue on without issue for
+	 * both cases: wdc_get_pci_ids successful or failed.
+	 */
+	sndk_get_pci_ids(r, dev, &device_id, &vendor_id);
+
+	typedef struct nvme_id_uuid_list_entry *uuid_list_entry;
+
+	memset(&uuid_list, 0, sizeof(struct nvme_id_uuid_list));
+	if (sndk_CheckUuidListSupport(dev, &uuid_list)) {
+		uuid_list_entry uuid_list_entry_ptr = (uuid_list_entry)&uuid_list.entry[0];
+
+		while (index <= NVME_ID_UUID_LIST_MAX &&
+		       !sndk_UuidEqual(uuid_list_entry_ptr, (uuid_list_entry)UUID_END)) {
+
+			if (sndk_UuidEqual(uuid_list_entry_ptr,
+					  (uuid_list_entry)SNDK_UUID)) {
+				uuid_present = true;
+				break;
+			}
+			index++;
+			uuid_list_entry_ptr = (uuid_list_entry)&uuid_list.entry[index];
+		}
+		if (uuid_present)
+			uuid_index = index + 1;
+	}
+
+	if (uuid_present) {
+		/* use the uuid index found above */
+		found = get_dev_mgmt_log_page_data(dev, data, uuid_index);
+	} else {
+		if (!uuid_index && needs_c2_log_page_check(device_id)) {
+			/* In certain devices that don't support UUID lists, there are multiple
+			 * definitions of the C2 logpage. In those cases, the code
+			 * needs to try two UUID indexes and use an identification algorithm
+			 * to determine which is returning the correct log page data.
+			 */
+			uuid_index = 1;
+		}
+
+		found = get_dev_mgmt_log_page_data(dev, data, uuid_index);
+
+		if (!found) {
+			/* not found with uuid = 1 try with uuid = 0 */
+			uuid_index = 0;
+			fprintf(stderr, "Not found, requesting log page with uuid_index %d\n",
+					uuid_index);
+
+			found = get_dev_mgmt_log_page_data(dev, data, uuid_index);
+		}
+	}
+
+	return found;
+}
+#endif
 
