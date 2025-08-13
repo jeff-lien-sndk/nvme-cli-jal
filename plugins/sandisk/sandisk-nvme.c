@@ -42,13 +42,6 @@ static int sndk_do_cap_telemetry_log(struct nvme_dev *dev, const char *file,
 	__u64 capabilities = 0;
 	nvme_root_t r;
 	bool host_behavior_changed = false;
-<<<<<<< Updated upstream
-	struct nvme_feat_host_behavior prev = {0};
-	__u32 result;
-
-
-=======
->>>>>>> Stashed changes
 
 	memset(&ctrl, 0, sizeof(struct nvme_id_ctrl));
 	err = nvme_identify_ctrl(dev_fd(dev), &ctrl);
