@@ -86,6 +86,8 @@
 #define WDC_NVME_SN560_DEV_ID_3				0x2714
 #define WDC_NVME_SN861_DEV_ID				0x2750
 #define WDC_NVME_SN861_DEV_ID_1				0x2751
+#define WDC_NVME_SNTMP_DEV_ID				0x2761
+#define WDC_NVME_SNTMP_DEV_ID_1				0x2763
 
 /* This id's are no longer supported, delete ?? */
 #define WDC_NVME_SN550_DEV_ID				0x2708
@@ -1882,6 +1884,23 @@ static __u64 wdc_get_drive_capabilities(nvme_root_t r, struct nvme_dev *dev)
 				WDC_DRIVE_CAP_VU_FID_CLEAR_PCIE |
 				WDC_DRIVE_CAP_VU_FID_CLEAR_FW_ACT_HISTORY |
 				WDC_DRIVE_CAP_INFO |
+				WDC_DRIVE_CAP_CLOUD_SSD_VERSION |
+				WDC_DRIVE_CAP_LOG_PAGE_DIR |
+				WDC_DRIVE_CAP_DRIVE_STATUS |
+				WDC_DRIVE_CAP_SET_LATENCY_MONITOR);
+			break;
+
+		case WDC_NVME_SNTMP_DEV_ID:
+		case WDC_NVME_SNTMP_DEV_ID_1:
+			capabilities |= (WDC_DRIVE_CAP_C0_LOG_PAGE |
+				WDC_DRIVE_CAP_C3_LOG_PAGE |
+				WDC_DRIVE_CAP_OCP_C4_LOG_PAGE |
+				WDC_DRIVE_CAP_OCP_C5_LOG_PAGE |
+				WDC_DRIVE_CAP_DUI |
+				WDC_DRIVE_CAP_FW_ACTIVATE_HISTORY_C2 |
+				WDC_DRIVE_CAP_VU_FID_CLEAR_PCIE |
+				WDC_DRIVE_CAP_VU_FID_CLEAR_FW_ACT_HISTORY |
+				WDC_DRIVE_CAP_CLEAR_ASSERT |
 				WDC_DRIVE_CAP_CLOUD_SSD_VERSION |
 				WDC_DRIVE_CAP_LOG_PAGE_DIR |
 				WDC_DRIVE_CAP_DRIVE_STATUS |
@@ -6909,6 +6928,8 @@ static int wdc_get_c0_log_page(nvme_root_t r, struct nvme_dev *dev, char *format
 	case WDC_NVME_SN650_DEV_ID_3:
 	case WDC_NVME_SN650_DEV_ID_4:
 	case WDC_NVME_SN655_DEV_ID:
+	case WDC_NVME_SNTMP_DEV_ID:
+	case WDC_NVME_SNTMP_DEV_ID_1:
 		if (uuid_index == 0) {
 			ret = nvme_get_print_ocp_cloud_smart_log(dev,
 					uuid_index,
