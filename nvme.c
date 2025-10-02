@@ -9415,6 +9415,227 @@ static int passthru(int argc, char **argv, bool admin,
 	return err;
 }
 
+static int passthru64(int argc, char **argv, bool admin,
+		const char *desc, struct command *cmd)
+{
+	const char *opcode = "opcode (required)";
+	const char *cflags = "command flags";
+	const char *rsvd = "value for reserved field";
+	const char *data_len = "data I/O length (bytes)";
+	const char *metadata_len = "metadata seg. length (bytes)";
+	const char *metadata = "metadata input or output file";
+	const char *cdw2 = "command dword 2 value";
+	const char *cdw3 = "command dword 3 value";
+	const char *cdw10 = "command dword 10 value";
+	const char *cdw11 = "command dword 11 value";
+	const char *cdw12 = "command dword 12 value";
+	const char *cdw13 = "command dword 13 value";
+	const char *cdw14 = "command dword 14 value";
+	const char *cdw15 = "command dword 15 value";
+	const char *input = "data input or output file";
+	const char *show = "print command before sending";
+	const char *re = "set dataflow direction to receive";
+	const char *wr = "set dataflow direction to send";
+	const char *prefill = "prefill buffers with known byte-value, default 0";
+
+	_cleanup_huge_ struct nvme_mem_huge mh = { 0, };
+	_cleanup_nvme_dev_ struct nvme_dev *dev = NULL;
+	_cleanup_fd_ int dfd = -1, mfd = -1;
+	int flags;
+	int mode = 0644;
+	void *data = NULL;
+	_cleanup_free_ void *mdata = NULL;
+	int err = 0;
+	__u64 result;
+	const char *cmd_name = NULL;
+	struct timeval start_time, end_time;
+	nvme_print_flags_t flags_t;
+
+	struct passthru_config cfg = {
+		.opcode		= 0,
+		.flags		= 0,
+		.prefill	= 0,
+		.rsvd		= 0,
+		.namespace_id	= 0,
+		.data_len	= 0,
+		.metadata_len	= 0,
+		.cdw2		= 0,
+		.cdw3		= 0,
+		.cdw10		= 0,
+		.cdw11		= 0,
+		.cdw12		= 0,
+		.cdw13		= 0,
+		.cdw14		= 0,
+		.cdw15		= 0,
+		.input_file	= "",
+		.metadata	= "",
+		.raw_binary	= false,
+		.show_command	= false,
+		.read		= false,
+		.write		= false,
+		.latency	= false,
+	};
+
+	NVME_ARGS(opts,
+		  OPT_BYTE("opcode",       'O', &cfg.opcode,       opcode),
+		  OPT_BYTE("flags",        'f', &cfg.flags,        cflags),
+		  OPT_BYTE("prefill",      'p', &cfg.prefill,      prefill),
+		  OPT_SHRT("rsvd",         'R', &cfg.rsvd,         rsvd),
+		  OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace_desired),
+		  OPT_UINT("data-len",     'l', &cfg.data_len,     data_len),
+		  OPT_UINT("metadata-len", 'm', &cfg.metadata_len, metadata_len),
+		  OPT_UINT("cdw2",         '2', &cfg.cdw2,         cdw2),
+		  OPT_UINT("cdw3",         '3', &cfg.cdw3,         cdw3),
+		  OPT_UINT("cdw10",        '4', &cfg.cdw10,        cdw10),
+		  OPT_UINT("cdw11",        '5', &cfg.cdw11,        cdw11),
+		  OPT_UINT("cdw12",        '6', &cfg.cdw12,        cdw12),
+		  OPT_UINT("cdw13",        '7', &cfg.cdw13,        cdw13),
+		  OPT_UINT("cdw14",        '8', &cfg.cdw14,        cdw14),
+		  OPT_UINT("cdw15",        '9', &cfg.cdw15,        cdw15),
+		  OPT_FILE("input-file",   'i', &cfg.input_file,   input),
+		  OPT_FILE("metadata",     'M', &cfg.metadata,     metadata),
+		  OPT_FLAG("raw-binary",   'b', &cfg.raw_binary,   raw_dump),
+		  OPT_FLAG("show-command", 's', &cfg.show_command, show),
+		  OPT_FLAG("dry-run",      'd', &nvme_cfg.dry_run, dry_run),
+		  OPT_FLAG("read",         'r', &cfg.read,         re),
+		  OPT_FLAG("write",        'w', &cfg.write,        wr),
+		  OPT_FLAG("latency",      'T', &cfg.latency,      latency));
+
+	err = parse_and_open(&dev, argc, argv, desc, opts);
+	if (err)
+		return err;
+
+	err = validate_output_format(nvme_cfg.output_format, &flags_t);
+	if (err < 0) {
+		nvme_show_error("Invalid output format");
+		return err;
+	}
+
+	if (!argconfig_parse_seen(opts, "opcode")) {
+		nvme_show_error("%s: opcode parameter required", cmd->name);
+		return -EINVAL;
+	}
+
+	if (cfg.opcode & 0x01) {
+		cfg.write = true;
+		flags = O_RDONLY;
+		dfd = mfd = STDIN_FILENO;
+	}
+
+	if (cfg.opcode & 0x02) {
+		cfg.read = true;
+		flags = O_WRONLY | O_CREAT;
+		dfd = mfd = STDOUT_FILENO;
+	}
+
+	if (strlen(cfg.input_file)) {
+		dfd = open(cfg.input_file, flags, mode);
+		if (dfd < 0) {
+			nvme_show_perror(cfg.input_file);
+			return -EINVAL;
+		}
+	}
+
+	if (cfg.metadata && strlen(cfg.metadata)) {
+		mfd = open(cfg.metadata, flags, mode);
+		if (mfd < 0) {
+			nvme_show_perror(cfg.metadata);
+			return -EINVAL;
+		}
+	}
+
+	if (cfg.metadata_len) {
+		mdata = malloc(cfg.metadata_len);
+		if (!mdata)
+			return -ENOMEM;
+
+		if (cfg.write) {
+			if (read(mfd, mdata, cfg.metadata_len) < 0) {
+				err = -errno;
+				nvme_show_perror("failed to read metadata write buffer");
+				return err;
+			}
+		} else {
+			memset(mdata, cfg.prefill, cfg.metadata_len);
+		}
+	}
+
+	if (cfg.data_len) {
+		data = nvme_alloc_huge(cfg.data_len, &mh);
+		if (!data) {
+			nvme_show_error("failed to allocate huge memory");
+			return -ENOMEM;
+		}
+
+		memset(data, cfg.prefill, cfg.data_len);
+		if (!cfg.read && !cfg.write) {
+			nvme_show_error("data direction not given");
+			return -EINVAL;
+		} else if (cfg.write) {
+			if (read(dfd, data, cfg.data_len) < 0) {
+				err = -errno;
+				nvme_show_error("failed to read write buffer %s", strerror(errno));
+				return err;
+			}
+		}
+	}
+
+	if (cfg.show_command || nvme_cfg.dry_run) {
+		printf("opcode       : %02x\n", cfg.opcode);
+		printf("flags        : %02x\n", cfg.flags);
+		printf("rsvd1        : %04x\n", cfg.rsvd);
+		printf("nsid         : %08x\n", cfg.namespace_id);
+		printf("cdw2         : %08x\n", cfg.cdw2);
+		printf("cdw3         : %08x\n", cfg.cdw3);
+		printf("data_len     : %08x\n", cfg.data_len);
+		printf("metadata_len : %08x\n", cfg.metadata_len);
+		printf("addr         : %"PRIx64"\n", (uint64_t)(uintptr_t)data);
+		printf("metadata     : %"PRIx64"\n", (uint64_t)(uintptr_t)mdata);
+		printf("cdw10        : %08x\n", cfg.cdw10);
+		printf("cdw11        : %08x\n", cfg.cdw11);
+		printf("cdw12        : %08x\n", cfg.cdw12);
+		printf("cdw13        : %08x\n", cfg.cdw13);
+		printf("cdw14        : %08x\n", cfg.cdw14);
+		printf("cdw15        : %08x\n", cfg.cdw15);
+		printf("timeout_ms   : %08x\n", nvme_cfg.timeout);
+	}
+	if (nvme_cfg.dry_run)
+		return 0;
+
+	gettimeofday(&start_time, NULL);
+
+	if (admin)
+		err = nvme_cli_admin_passthru64(dev, cfg.opcode, cfg.flags,
+					      cfg.rsvd,
+					      cfg.namespace_id, cfg.cdw2,
+					      cfg.cdw3, cfg.cdw10,
+					      cfg.cdw11, cfg.cdw12, cfg.cdw13,
+					      cfg.cdw14,
+					      cfg.cdw15, cfg.data_len, data,
+					      cfg.metadata_len,
+					      mdata, nvme_cfg.timeout, &result);
+
+	gettimeofday(&end_time, NULL);
+	cmd_name = nvme_cmd_to_string(admin, cfg.opcode);
+	if (cfg.latency)
+		printf("%s Command %s latency: %llu us\n", admin ? "Admin" : "IO",
+		       strcmp(cmd_name, "Unknown") ? cmd_name : "Vendor Specific",
+		       elapsed_utime(start_time, end_time));
+
+	if (err < 0) {
+		nvme_show_error("%s: %s", __func__, nvme_strerror(errno));
+	} else if (err) {
+		nvme_show_status(err);
+	} else  {
+		fprintf(stderr, "%s Command %s is Success and result: 0x%016llx\n", admin ? "Admin" : "IO",
+			strcmp(cmd_name, "Unknown") ? cmd_name : "Vendor Specific", result);
+		if (cfg.read)
+			passthru_print_read_output(cfg, data, dfd, mdata, mfd, err);
+	}
+
+	return err;
+}
+
 static int io_passthru(int argc, char **argv, struct command *cmd, struct plugin *plugin)
 {
 	const char *desc =
@@ -9429,6 +9650,14 @@ static int admin_passthru(int argc, char **argv, struct command *cmd, struct plu
 	    "Send a user-defined Admin command to the specified device via IOCTL passthrough, return results.";
 
 	return passthru(argc, argv, true, desc, cmd);
+}
+
+static int admin_passthru64(int argc, char **argv, struct command *cmd, struct plugin *plugin)
+{
+	const char *desc =
+	    "Send a user-defined Admin command to the specified device via IOCTL passthrough, return 64 bit results.";
+
+	return passthru64(argc, argv, true, desc, cmd);
 }
 
 static int gen_hostnqn_cmd(int argc, char **argv, struct command *command, struct plugin *plugin)

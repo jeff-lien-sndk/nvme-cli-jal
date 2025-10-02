@@ -74,6 +74,7 @@ COMMAND_LIST(
 	ENTRY("fw-commit", "Verify and commit firmware to a specific slot (fw-activate in old version < 1.2)", fw_commit, "fw-activate")
 	ENTRY("fw-download", "Download new firmware", fw_download)
 	ENTRY("admin-passthru", "Submit an arbitrary admin command, return results", admin_passthru)
+	ENTRY("admin-passthru64", "Submit an arbitrary admin command, return 64 bit results", admin_passthru64)
 	ENTRY("io-passthru", "Submit an arbitrary IO command, return results", io_passthru)
 	ENTRY("security-send", "Submit a Security Send command, return results", sec_send)
 	ENTRY("security-recv", "Submit a Security Receive command, return results", sec_recv)
