@@ -429,7 +429,7 @@ static int sndk_vs_internal_fw_log(int argc, char **argv,
 
 	if (!cfg.type || !strcmp(cfg.type, "NONE") || !strcmp(cfg.type, "none")) {
 		telemetry_type = SNDK_TELEMETRY_TYPE_NONE;
-		data_area = 0;
+		telemetry_data_area = 0;
 	} else if (!strcmp(cfg.type, "HOST") || !strcmp(cfg.type, "host")) {
 		telemetry_type = SNDK_TELEMETRY_TYPE_HOST;
 		telemetry_data_area = cfg.data_area;
@@ -445,15 +445,19 @@ static int sndk_vs_internal_fw_log(int argc, char **argv,
 
 	capabilities = sndk_get_drive_capabilities(ctx, hdl);
 
-	/* Supported through WDC plugin for non-telemetry */
-	if ((capabilities & SNDK_DRIVE_CAP_INTERNAL_LOG) &&
+	if ((telemetry_data_area == 0) &&
 	    (telemetry_type != SNDK_TELEMETRY_TYPE_NONE)) {
+		/* No data area specified so get the default value */
 		if (sndk_get_default_telemetry_da(hdl, &telemetry_data_area)) {
 			fprintf(stderr, "%s: Error determining default telemetry data area\n",
 				__func__);
 			return -EINVAL;
 		}
+	}
 
+	/* Supported through WDC plugin for non-telemetry */
+	if ((capabilities & SNDK_DRIVE_CAP_INTERNAL_LOG) &&
+	    (telemetry_type != SNDK_TELEMETRY_TYPE_NONE)) {
 		ret = sndk_do_cap_telemetry_log(ctx, hdl, f, xfer_size,
 				telemetry_type, telemetry_data_area);
 		goto out;
@@ -462,12 +466,6 @@ static int sndk_vs_internal_fw_log(int argc, char **argv,
 	if (capabilities & SNDK_DRIVE_CAP_UDUI) {
 		if ((telemetry_type == SNDK_TELEMETRY_TYPE_HOST) ||
 		    (telemetry_type == SNDK_TELEMETRY_TYPE_CONTROLLER)) {
-			if (sndk_get_default_telemetry_da(hdl, &telemetry_data_area)) {
-				fprintf(stderr, "%s: Error determining default telemetry data area\n",
-					__func__);
-				return -EINVAL;
-			}
-
 			ret = sndk_do_cap_telemetry_log(ctx, hdl, f, xfer_size,
 					telemetry_type, telemetry_data_area);
 			goto out;
