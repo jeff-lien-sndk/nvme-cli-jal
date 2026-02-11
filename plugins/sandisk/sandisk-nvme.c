@@ -196,8 +196,7 @@ static __u32 sndk_dump_udui_data(struct nvme_transport_handle *hdl,
 }
 
 static int sndk_do_cap_udui(struct nvme_transport_handle *hdl, char *file,
-			    __u32 xfer_size, int verbose, __u64 file_size,
-			    __u64 offset)
+			    __u32 xfer_size, int verbose)
 {
 	int ret = 0;
 	int output;
@@ -206,6 +205,7 @@ static int sndk_do_cap_udui(struct nvme_transport_handle *hdl, char *file,
 	__u32 udui_log_hdr_size = sizeof(struct nvme_telemetry_log);
 	__u32 chunk_size = xfer_size;
 	__u64 total_size;
+	__u64 offset = 0;
 
 	log = (struct nvme_telemetry_log *)malloc(udui_log_hdr_size);
 	if (!log) {
@@ -225,14 +225,6 @@ static int sndk_do_cap_udui(struct nvme_transport_handle *hdl, char *file,
 	}
 
 	total_size = (le32_to_cpu(log->dalb4) + 1) * 512;
-	if (offset > total_size) {
-		fprintf(stderr, "%s: ERROR: SNDK: offset larger than log length = 0x%"PRIx64"\n",
-			__func__, (uint64_t)total_size);
-		goto out;
-	}
-
-	if (file_size && (total_size - offset) > file_size)
-		total_size = offset + file_size;
 
 	log = (struct nvme_telemetry_log *)realloc(log, chunk_size);
 
@@ -311,16 +303,16 @@ static int sndk_vs_internal_fw_log(int argc, char **argv,
 	const char *size = "Data retrieval transfer size.";
 	const char *data_area =
 		"Data area to retrieve up to. Supported for telemetry, see man page for other use cases.";
-	const char *file_size =
-		"Output file size. Deprecated, see man page for supported devices.";
-	const char *offset =
-		"Output file data offset. Deprecated, see man page for supported devices.";
 	const char *type =
 		"Telemetry type - NONE, HOST, or CONTROLLER:\n" \
 		"  NONE - Default, capture without using NVMe telemetry.\n" \
 		"  HOST - Host-initiated telemetry.\n" \
 		"  CONTROLLER - Controller-initiated telemetry.";
 	const char *verbose = "Display more debug messages.";
+	const char *file_size =
+		"Output file size. Deprecated, see man page for supported devices.";
+	const char *offset =
+		"Output file data offset. Deprecated, see man page for supported devices.";
 	char f[PATH_MAX] = {0};
 	char fileSuffix[PATH_MAX] = {0};
 	__u32 xfer_size = 0;
@@ -357,10 +349,10 @@ static int sndk_vs_internal_fw_log(int argc, char **argv,
 		OPT_FILE("output-file",   'o', &cfg.file,      file),
 		OPT_UINT("transfer-size", 's', &cfg.xfer_size, size),
 		OPT_UINT("data-area",     'd', &cfg.data_area, data_area),
-		OPT_LONG("file-size",     'f', &cfg.file_size, file_size),
-		OPT_LONG("offset",        'e', &cfg.offset,    offset),
 		OPT_FILE("type",          't', &cfg.type,      type),
 		OPT_FLAG("verbose",       'v', &cfg.verbose,   verbose),
+		OPT_LONG("file-size",     'f', &cfg.file_size, file_size),
+		OPT_LONG("offset",        'e', &cfg.offset,    offset),
 		OPT_END()
 	};
 
@@ -445,7 +437,7 @@ static int sndk_vs_internal_fw_log(int argc, char **argv,
 
 	capabilities = sndk_get_drive_capabilities(ctx, hdl);
 
-	if ((telemetry_data_area == 0) &&
+	if ((capabilities & SNDK_DRIVE_CAP_INTERNAL_LOG_MASK) &&
 	    (telemetry_type != SNDK_TELEMETRY_TYPE_NONE)) {
 		/* No data area specified so get the default value */
 		if (sndk_get_default_telemetry_da(hdl, &telemetry_data_area)) {
@@ -464,17 +456,14 @@ static int sndk_vs_internal_fw_log(int argc, char **argv,
 	}
 
 	if (capabilities & SNDK_DRIVE_CAP_UDUI) {
-		if ((telemetry_type == SNDK_TELEMETRY_TYPE_HOST) ||
-		    (telemetry_type == SNDK_TELEMETRY_TYPE_CONTROLLER)) {
-			ret = sndk_do_cap_telemetry_log(ctx, hdl, f, xfer_size,
-					telemetry_type, telemetry_data_area);
-			goto out;
-		} else {
-			ret = sndk_do_cap_udui(hdl, f, xfer_size,
-					 cfg.verbose, cfg.file_size,
-					 cfg.offset);
+		if (cfg.data_area) {
+			fprintf(stderr,
+				"ERROR: SNDK: Data area parameter is not supported when type is NONE\n");
+			ret = -1;
 			goto out;
 		}
+		ret = sndk_do_cap_udui(hdl, f, xfer_size, cfg.verbose);
+		goto out;
 	}
 
 	/* Fallback to WDC plugin if otherwise not supported */

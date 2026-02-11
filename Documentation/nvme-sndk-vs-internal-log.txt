@@ -47,6 +47,17 @@ OPTIONS
 	SN340, SN350, SN530, SN570, SN730, SN740, SN840, SN850X, SN5000,
 	SN5100S, SN7000S, SN7100, and SN7150 devices.
 
+-t <TYPE>::
+--type=<TYPE>::
+	Specifies the telemetry type - NONE, HOST, or CONTROLLER. This parameter
+	is used to get either the host-initiated or controller-initiated
+	telemetry log page. If not specified or if <TYPE> is NONE, the command
+	will return vendor defined debug data.
+
+-v <VERBOSE>::
+--verbose=<VERBOSE>::
+	Provides additional debug messages for certain drives.
+
 -f <FILE SIZE>::
 --file-size=<FILE SIZE>::
 	Deprecated. Specifies the desired size of the data file starting at the
@@ -63,17 +74,6 @@ OPTIONS
 	supported on the devices mentioned in the documentation of the
 	--data-area parameter, and only for capture with --type=NONE or --type
 	not specified.
-
--t <TYPE>::
---type=<TYPE>::
-	Specifies the telemetry type - NONE, HOST, or CONTROLLER. This parameter
-	is used to get either the host-initiated or controller-initiated
-	telemetry log page. If not specified or if <TYPE> is NONE, the command
-	will return vendor defined debug data.
-
--v <VERBOSE>::
---verbose=<VERBOSE>::
-	Provides additional debug messages for certain drives.
 
 EXAMPLES
 --------
