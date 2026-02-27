@@ -463,6 +463,7 @@ static int sndk_vs_internal_fw_log(int argc, char **argv,
 			goto out;
 		}
 		close(verify_file);
+		remove(cfg.file);
 		strncpy(f, cfg.file, PATH_MAX - 1);
 	} else {
 		sndk_UtilsGetTime(&timeInfo);
@@ -541,7 +542,7 @@ static int sndk_vs_internal_fw_log(int argc, char **argv,
 				}
 				snprintf(tar_file, PATH_MAX, "%s.tar", f);
 			} else {
-				strncpy(tar_file, f, PATH_MAX - 1);
+				snprintf(tar_file, PATH_MAX, "%s", f);
 			}
 			ret = sndk_do_cap_both_telemetry_log(ctx, hdl,
 					tar_file, xfer_size,
